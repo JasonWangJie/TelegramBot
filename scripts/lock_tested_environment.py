@@ -85,7 +85,7 @@ def main() -> None:
             for index, digest in enumerate(digests):
                 suffix = " \\" if index < len(digests) - 1 else ""
                 lines.append(f"    --hash=sha256:{digest}{suffix}")
-        (ROOT / filename).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        (ROOT / filename).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         print(f"Wrote {filename}: {len(versions)} pinned packages")
 
 

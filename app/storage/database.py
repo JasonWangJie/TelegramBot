@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS reply_events (
     sent_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_reply_events_recent ON reply_events(chat_id, sent_at);
+CREATE TABLE IF NOT EXISTS group_settings (
+    chat_id INTEGER PRIMARY KEY,
+    settings_json TEXT NOT NULL
+);
 """
 
 
@@ -74,6 +78,9 @@ class Database:
                 await connection.execute("PRAGMA journal_mode = WAL")
                 await connection.execute("PRAGMA foreign_keys = ON")
                 await connection.executescript(SCHEMA)
+                from app.storage.usage import USAGE_SCHEMA
+
+                await connection.executescript(USAGE_SCHEMA)
                 await connection.commit()
             except BaseException:
                 await connection.close()

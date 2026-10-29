@@ -140,6 +140,19 @@ async def test_intervals_longer_than_one_hour_survive_history_cleanup(db):
 
 
 @pytest.mark.asyncio
+async def test_other_groups_short_interval_cannot_prune_long_interval(db):
+    now = [1000.0]
+    long_interval = RateLimiter(db, min_interval_seconds=7200, clock=lambda: now[0])
+    normal_interval = RateLimiter(db, min_interval_seconds=20, clock=lambda: now[0])
+    await long_interval.record_reply(-100)
+    now[0] += 4000
+    await normal_interval.record_reply(-200)
+    status = await long_interval.check(-100)
+    assert not status.allowed
+    assert status.retry_after == 3200
+
+
+@pytest.mark.asyncio
 async def test_backoff_survives_restart_and_never_shortens(db):
     now = [1000.0]
     limiter = RateLimiter(db, clock=lambda: now[0])

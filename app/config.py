@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -39,10 +40,28 @@ class Settings(BaseSettings):
     ai_max_output_tokens: int = Field(default=300, ge=1, le=4000)
     ai_max_concurrent_requests: int = Field(default=4, ge=1, le=32)
     ai_token_parameter: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    bot_timezone: str = "Asia/Shanghai"
+    followup_ttl_seconds: int = Field(default=120, ge=0, le=1800)
+    chat_daily_call_limit: int = Field(default=200, ge=0, le=100000)
+    global_daily_call_limit: int = Field(default=1000, ge=0, le=1000000)
+    usage_retention_days: int = Field(default=30, ge=1, le=365)
+    ai_input_price_per_million: float = Field(default=0, ge=0, allow_inf_nan=False)
+    ai_output_price_per_million: float = Field(default=0, ge=0, allow_inf_nan=False)
+    decision_input_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    decision_output_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     database_path: Path = Path("data/bot.db")
     heartbeat_path: Path = Path("data/bot-heartbeat")
     healthcheck_max_age_seconds: float = Field(default=180, ge=60, le=600, allow_inf_nan=False)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+
+    @field_validator("bot_timezone")
+    @classmethod
+    def timezone_name(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("expected an IANA timezone name") from None
+        return value
 
     @field_validator("telegram_bot_token", "new_api_key")
     @classmethod

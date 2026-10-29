@@ -17,16 +17,19 @@ from app.services.conversation import ConversationService
 from app.services.decision import DecisionService
 from app.services.rate_limiter import RateLimiter
 from app.storage.database import Database
+from app.storage.group_settings import GroupSettingsStore
 from app.storage.messages import MessageStore
+from app.storage.usage import UsageStore
 
 logger = logging.getLogger(__name__)
 
 
-async def maintain(store: MessageStore) -> None:
+async def maintain(store: MessageStore, usage: UsageStore) -> None:
     while True:
         await asyncio.sleep(60)
         try:
             await store.cleanup()
+            await usage.cleanup()
         except Exception as exc:
             logger.error("cleanup_failed", extra={"error_type": type(exc).__name__})
 
@@ -45,7 +48,12 @@ async def run(settings: Settings) -> None:
         store = MessageStore(db, max_messages=settings.context_max_messages,
                              retention_days=settings.history_retention_days)
         await store.cleanup()
-        ai = AIClient(settings)
+        usage = UsageStore(db, timezone_name=settings.bot_timezone,
+                           global_daily_limit=settings.global_daily_call_limit,
+                           default_chat_daily_limit=settings.chat_daily_call_limit,
+                           retention_days=settings.usage_retention_days)
+        await usage.cleanup()
+        ai = AIClient(settings, usage=usage)
         stack.push_async_callback(ai.close)
         bot = Bot(settings.telegram_bot_token.get_secret_value())
         stack.push_async_callback(bot.session.close)
@@ -58,9 +66,10 @@ async def run(settings: Settings) -> None:
                               cooldown_seconds=settings.chat_cooldown_seconds,
                               max_per_hour=settings.max_replies_per_hour)
         controller = MessageController(settings, bot, me, store, limiter,
-                                       DecisionService(settings, ai), ConversationService(settings, ai))
+                                       DecisionService(settings, ai), ConversationService(settings, ai),
+                                       group_settings=GroupSettingsStore(db), usage=usage)
         stack.push_async_callback(controller.close)
-        cleanup_task = asyncio.create_task(maintain(store))
+        cleanup_task = asyncio.create_task(maintain(store, usage))
 
         async def stop_cleanup():
             cleanup_task.cancel()
@@ -81,7 +90,7 @@ async def run(settings: Settings) -> None:
 
         logger.info("polling_started", extra={"count": len(settings.allowed_chat_ids)})
         try:
-            await dispatcher.start_polling(bot, allowed_updates=["message"], polling_timeout=30,
+            await dispatcher.start_polling(bot, allowed_updates=["message", "callback_query"], polling_timeout=30,
                                             tasks_concurrency_limit=100, close_bot_session=False,
                                             handle_signals=os.name != "nt")
         finally:

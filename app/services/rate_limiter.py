@@ -110,8 +110,8 @@ class RateLimiter:
                 # Keep enough history for both independent constraints; a longer
                 # minimum interval must survive pruning and process restarts.
                 await conn.execute(
-                    "DELETE FROM reply_events WHERE sent_at <= ?",
-                    (now - max(3600, self.min_interval_seconds),),
+                    "DELETE FROM reply_events WHERE chat_id = ? AND sent_at <= ?",
+                    (chat_id, now - max(3600, self.min_interval_seconds)),
                 )
                 await conn.commit()
                 return int(event_id)

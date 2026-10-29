@@ -68,6 +68,7 @@ class DecisionService:
         self.settings = settings
         self.ai_client = ai_client
         self._random = rng or random.random
+        self.last_reason = "not_evaluated"
         self._prompt = (PROMPT_DIRECTORY / "decision.txt").read_text(encoding="utf-8")
 
     def is_candidate(self, text: str, direct: bool = False) -> bool:
@@ -86,8 +87,10 @@ class DecisionService:
         self, context: list[StoredMessage], trigger: StoredMessage, direct: bool = False
     ) -> bool:
         if not self.is_candidate(trigger.content, direct=direct):
+            self.last_reason = "local_filter"
             return False
         if direct and self.settings.direct_mention_always_reply:
+            self.last_reason = "direct_request"
             return True
         normalized = " ".join(trigger.content.split()).casefold()
         if not direct and any(
@@ -98,10 +101,13 @@ class DecisionService:
             and " ".join(message.content.split()).casefold() == normalized
             for message in context
         ):
+            self.last_reason = "repeated_content"
             return False
         if self._random() >= self.settings.reply_probability:
+            self.last_reason = "probability_skip"
             return False
         if not self.settings.decision_enabled:
+            self.last_reason = "rules_accepted"
             return True
         try:
             content = await self.ai_client.chat(
@@ -112,7 +118,14 @@ class DecisionService:
                 decision=True,
             )
             decision = parse_decision(content)
-        except (AIError, ValueError, ValidationError):
+        except AIError as exc:
+            self.last_reason = "budget_exhausted" if str(exc) == "daily_budget_exhausted" else "decision_unavailable"
             logger.info("decision_skipped_invalid_or_unavailable")
             return False
-        return decision.action == "reply" and decision.confidence >= self.settings.decision_confidence_threshold
+        except (ValueError, ValidationError):
+            self.last_reason = "invalid_decision"
+            logger.info("decision_skipped_invalid_or_unavailable")
+            return False
+        accepted = decision.action == "reply" and decision.confidence >= self.settings.decision_confidence_threshold
+        self.last_reason = "decision_reply" if accepted else "decision_skip"
+        return accepted
